@@ -4,26 +4,6 @@ from PySide6.QtGui import QPainter, QColor, QPen, QGuiApplication
 from PySide6.QtWidgets import QWidget
 
 
-def _get_physical_cursor_pos():
-    """
-    Windows API (GetCursorPos) を直接呼び出して、物理ピクセル単位の
-    カーソル座標を取得する。Qt の座標変換を一切経由しないため、
-    DPIスケーリングやマルチモニターの影響を完全に受けない。
-    mss が使う座標系と 100% 同一の値が返る。
-    """
-    if sys.platform == "win32":
-        import ctypes
-
-        class POINT(ctypes.Structure):
-            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
-
-        pt = POINT()
-        ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
-        return QPoint(pt.x, pt.y)
-    else:
-        from PySide6.QtGui import QCursor
-        return QCursor.pos()
-
 
 class SelectionWindow(QWidget):
     def __init__(self, on_selected):
@@ -35,9 +15,9 @@ class SelectionWindow(QWidget):
         self.end_point = QPoint()
         self.is_drawing = False
 
-        # ---- キャプチャ用 (物理ピクセル、mss互換座標) ----
-        self._phys_start = QPoint()
-        self._phys_end = QPoint()
+        # ---- キャプチャ用 (画面全体の絶対座標) ----
+        self.global_start = QPoint()
+        self.global_end = QPoint()
 
         self.init_ui()
 
@@ -76,32 +56,34 @@ class SelectionWindow(QWidget):
     # ------------------------------------------------------------------ #
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            # 描画用: ウィジェットローカル座標
-            self.start_point = event.pos()
+            # キャプチャ用: ウィンドウの影響を受けない画面全体の絶対座標
+            self.global_start = event.globalPosition().toPoint()
+            self.global_end = self.global_start
+            
+            # 描画用: その絶対座標を、このウィジェット上のローカル座標へ変換
+            self.start_point = self.mapFromGlobal(self.global_start)
             self.end_point = self.start_point
-            # キャプチャ用: Windows API から物理ピクセル座標を直接取得
-            self._phys_start = _get_physical_cursor_pos()
+            
             self.is_drawing = True
             self.update()
 
     def mouseMoveEvent(self, event):
         if self.is_drawing:
-            # 描画用のみ更新 (物理座標は最終確定時に取得)
-            self.end_point = event.pos()
+            # ドラッグ中は描画用と絶対座標の両方を更新
+            self.global_end = event.globalPosition().toPoint()
+            self.end_point = self.mapFromGlobal(self.global_end)
             self.update()
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self.is_drawing:
-            self.end_point = event.pos()
-            # キャプチャ用: Windows API から物理ピクセル座標を直接取得
-            self._phys_end = _get_physical_cursor_pos()
+            self.global_end = event.globalPosition().toPoint()
+            self.end_point = self.mapFromGlobal(self.global_end)
             self.is_drawing = False
             self.update()
 
-            local_rect = QRect(self.start_point, self.end_point).normalized()
-            if local_rect.width() > 10 and local_rect.height() > 10:
-                # mss に渡す座標は物理ピクセル座標から直接構築する
-                capture_rect = QRect(self._phys_start, self._phys_end).normalized()
+            capture_rect = QRect(self.global_start, self.global_end).normalized()
+            if capture_rect.width() > 10 and capture_rect.height() > 10:
+                # 完全に一致した絶対座標をコールバックに渡す
                 self.on_selected(capture_rect)
             else:
                 self.close()
