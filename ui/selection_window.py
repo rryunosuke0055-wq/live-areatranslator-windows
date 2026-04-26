@@ -57,26 +57,31 @@ class SelectionWindow(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.start_point = event.globalPos()
+            self.start_point = event.position().toPoint()
             self.end_point = self.start_point
             self.is_drawing = True
             self.update()
 
     def mouseMoveEvent(self, event):
         if self.is_drawing:
-            self.end_point = event.globalPos()
+            self.end_point = event.position().toPoint()
             self.update()
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self.is_drawing:
-            self.end_point = event.globalPos()
+            self.end_point = event.position().toPoint()
             self.is_drawing = False
             self.update()
             
-            selection_rect = QRect(self.start_point, self.end_point).normalized()
+            local_rect = QRect(self.start_point, self.end_point).normalized()
             # 一定サイズ以上の領域が選択された場合のみコールバックを呼ぶ
-            if selection_rect.width() > 10 and selection_rect.height() > 10:
-                self.on_selected(selection_rect)
+            if local_rect.width() > 10 and local_rect.height() > 10:
+                # 描画用のローカル座標を、実際の画面キャプチャ用（mss等）のグローバル絶対座標に変換する
+                global_top_left = self.mapToGlobal(local_rect.topLeft())
+                global_bottom_right = self.mapToGlobal(local_rect.bottomRight())
+                global_rect = QRect(global_top_left, global_bottom_right)
+                
+                self.on_selected(global_rect)
             else:
                 # キャンセル処理：閉じる
                 self.close()
