@@ -10,7 +10,7 @@ class OverlayManager(QObject):
 
     def __init__(self):
         super().__init__()
-        self.selection_window = None
+        self.selection_windows = []
         self.translation_overlay = None
         
         # 設定値（HomeWindowから渡される）
@@ -23,9 +23,20 @@ class OverlayManager(QObject):
 
     def start_selection_mode(self):
         """画面上の領域を選択するモードを開始する"""
-        if not self.selection_window:
-            self.selection_window = SelectionWindow(on_selected=self.on_area_selected)
-        self.selection_window.show()
+        from PySide6.QtGui import QGuiApplication
+        
+        # 古いウィンドウが残っていれば閉じる
+        for win in self.selection_windows:
+            win.close()
+        self.selection_windows.clear()
+        
+        # 各モニター（スクリーン）ごとに個別の選択用ウィンドウを配置する
+        # これにより、OS側のマルチモニター座標空間がずれるバグを完全に回避します
+        for screen in QGuiApplication.screens():
+            win = SelectionWindow(on_selected=self.on_area_selected)
+            win.setGeometry(screen.geometry())
+            win.show()
+            self.selection_windows.append(win)
         # 既存のオーバーレイを隠してワーカーを止める
         if self.translation_overlay:
             self.translation_overlay.hide()
@@ -35,7 +46,11 @@ class OverlayManager(QObject):
     def on_area_selected(self, rect: QRect):
         """領域が選択された後に呼ばれるコールバック"""
         print(f"Area selected: {rect.x()}, {rect.y()}, {rect.width()}x{rect.height()}")
-        self.selection_window.close()
+        
+        # 選択が完了したら全モニターの選択用ウィンドウを閉じる
+        for win in self.selection_windows:
+            win.close()
+        self.selection_windows.clear()
         
         # オーバーレイ用のウィンドウを作成して表示
         self.show_translation_overlay(rect)

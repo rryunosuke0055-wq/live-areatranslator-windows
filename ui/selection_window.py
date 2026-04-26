@@ -25,12 +25,8 @@ class SelectionWindow(QWidget):
         # 背景を透明に
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
-        # 複数モニター対応のため全スクリーンの合計ジオメトリを取得
-        screens = QGuiApplication.screens()
-        rect = QRect()
-        for screen in screens:
-            rect = rect.united(screen.geometry())
-        self.setGeometry(rect)
+        # 単一モニター分の表示とするため、ジオメトリの強制結合処理を削除
+        # 親（OverlayManager）側で各モニターのジオメトリが直接 setGeometry されます。
         
         # カーソルを十字に変更
         self.setCursor(Qt.CursorShape.CrossCursor)
