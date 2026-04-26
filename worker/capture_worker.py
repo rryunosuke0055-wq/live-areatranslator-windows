@@ -18,8 +18,8 @@ class CaptureWorker(QThread):
         self.last_img = None
         self.last_text = ""
         
-        self.diff_threshold = 2.0  # 画像の変化判定の閾値
-        self.fps = 2               # 1秒間にキャプチャする回数
+        self.diff_threshold = 1.0  # 画像の変化判定の閾値（低いほど敏感に反応）
+        self.fps = 5               # 1秒間にキャプチャする回数（高いほど反応が早い）
         self.interval = 1.0 / self.fps
 
     def set_fps(self, fps: int):

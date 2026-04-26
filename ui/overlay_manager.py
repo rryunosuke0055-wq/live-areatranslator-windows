@@ -1,5 +1,6 @@
 from PySide6.QtCore import Qt, QRect, QObject, Signal
 from PySide6.QtWidgets import QWidget
+from PySide6.QtGui import QGuiApplication
 from ui.selection_window import SelectionWindow
 from ui.translation_overlay import TranslationOverlay
 from worker.capture_worker import CaptureWorker
@@ -23,20 +24,20 @@ class OverlayManager(QObject):
 
     def start_selection_mode(self):
         """画面上の領域を選択するモードを開始する"""
-        from PySide6.QtGui import QGuiApplication
-        
         # 古いウィンドウが残っていれば閉じる
         for win in self.selection_windows:
             win.close()
         self.selection_windows.clear()
         
-        # 各モニター（スクリーン）ごとに個別の選択用ウィンドウを配置する
-        # これにより、OS側のマルチモニター座標空間がずれるバグを完全に回避します
+        # 仮想デスクトップ全体を覆う 1 枚の巨大ウィンドウを作るのではなく、
+        # モニターごとに独立した選択ウィンドウを配置する。
+        # これにより DPI が異なるモニター間での座標ズレを防ぐ。
         for screen in QGuiApplication.screens():
             win = SelectionWindow(on_selected=self.on_area_selected)
             win.setGeometry(screen.geometry())
             win.show()
             self.selection_windows.append(win)
+
         # 既存のオーバーレイを隠してワーカーを止める
         if self.translation_overlay:
             self.translation_overlay.hide()

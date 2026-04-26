@@ -1,88 +1,111 @@
+import sys
 from PySide6.QtCore import Qt, QRect, QPoint
-from PySide6.QtGui import QPainter, QColor, QPen
+from PySide6.QtGui import QPainter, QColor, QPen, QGuiApplication
 from PySide6.QtWidgets import QWidget
-from PySide6.QtGui import QGuiApplication
+
+
+def _get_physical_cursor_pos():
+    """
+    Windows API (GetCursorPos) を直接呼び出して、物理ピクセル単位の
+    カーソル座標を取得する。Qt の座標変換を一切経由しないため、
+    DPIスケーリングやマルチモニターの影響を完全に受けない。
+    mss が使う座標系と 100% 同一の値が返る。
+    """
+    if sys.platform == "win32":
+        import ctypes
+
+        class POINT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+        pt = POINT()
+        ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+        return QPoint(pt.x, pt.y)
+    else:
+        from PySide6.QtGui import QCursor
+        return QCursor.pos()
+
 
 class SelectionWindow(QWidget):
     def __init__(self, on_selected):
         super().__init__()
         self.on_selected = on_selected
-        
-        # 枠線描画用の変数
+
+        # ---- 描画用 (ウィジェットローカル座標) ----
         self.start_point = QPoint()
         self.end_point = QPoint()
         self.is_drawing = False
 
+        # ---- キャプチャ用 (物理ピクセル、mss互換座標) ----
+        self._phys_start = QPoint()
+        self._phys_end = QPoint()
+
         self.init_ui()
 
     def init_ui(self):
-        # フルスクリーンで最前面、枠なし、タスクバー非表示
         self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint | 
-            Qt.WindowType.WindowStaysOnTopHint | 
-            Qt.WindowType.Tool
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
         )
-        # 背景を透明に
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        
-        # 単一モニター分の表示とするため、ジオメトリの強制結合処理を削除
-        # 親（OverlayManager）側で各モニターのジオメトリが直接 setGeometry されます。
-        
-        # カーソルを十字に変更
         self.setCursor(Qt.CursorShape.CrossCursor)
 
+    # ------------------------------------------------------------------ #
+    #  描画
+    # ------------------------------------------------------------------ #
     def paintEvent(self, event):
         painter = QPainter(self)
-        
-        # 画面全体を半透明の暗い色で塗りつぶす
+        # 半透明の暗い背景
         painter.fillRect(self.rect(), QColor(0, 0, 0, 128))
 
         if self.is_drawing and not self.start_point.isNull() and not self.end_point.isNull():
-            # 選択中の領域を切り抜く（透明にする）ための描画
             selection_rect = QRect(self.start_point, self.end_point).normalized()
-            
-            # その領域のハイライト（暗い背景を消す）
+
+            # 選択領域を「くり抜き」にする
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
             painter.fillRect(selection_rect, Qt.GlobalColor.transparent)
-            
-            # 元のモードに戻して枠線を描画
+
+            # 緑の枠線を描画
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
             pen = QPen(QColor(0, 255, 0), 2, Qt.PenStyle.SolidLine)
             painter.setPen(pen)
             painter.drawRect(selection_rect)
 
+    # ------------------------------------------------------------------ #
+    #  マウスイベント
+    # ------------------------------------------------------------------ #
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.start_point = event.position().toPoint()
+            # 描画用: ウィジェットローカル座標
+            self.start_point = event.pos()
             self.end_point = self.start_point
+            # キャプチャ用: Windows API から物理ピクセル座標を直接取得
+            self._phys_start = _get_physical_cursor_pos()
             self.is_drawing = True
             self.update()
 
     def mouseMoveEvent(self, event):
         if self.is_drawing:
-            self.end_point = event.position().toPoint()
+            # 描画用のみ更新 (物理座標は最終確定時に取得)
+            self.end_point = event.pos()
             self.update()
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self.is_drawing:
-            self.end_point = event.position().toPoint()
+            self.end_point = event.pos()
+            # キャプチャ用: Windows API から物理ピクセル座標を直接取得
+            self._phys_end = _get_physical_cursor_pos()
             self.is_drawing = False
             self.update()
-            
+
             local_rect = QRect(self.start_point, self.end_point).normalized()
-            # 一定サイズ以上の領域が選択された場合のみコールバックを呼ぶ
             if local_rect.width() > 10 and local_rect.height() > 10:
-                # 描画用のローカル座標を、実際の画面キャプチャ用（mss等）のグローバル絶対座標に変換する
-                global_top_left = self.mapToGlobal(local_rect.topLeft())
-                global_bottom_right = self.mapToGlobal(local_rect.bottomRight())
-                global_rect = QRect(global_top_left, global_bottom_right)
-                
-                self.on_selected(global_rect)
+                # mss に渡す座標は物理ピクセル座標から直接構築する
+                capture_rect = QRect(self._phys_start, self._phys_end).normalized()
+                self.on_selected(capture_rect)
             else:
-                # キャンセル処理：閉じる
                 self.close()
 
     def keyPressEvent(self, event):
-        # ESCキーでキャンセル
         if event.key() == Qt.Key.Key_Escape:
             self.close()

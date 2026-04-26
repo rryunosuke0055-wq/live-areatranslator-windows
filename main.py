@@ -1,8 +1,15 @@
 import sys
 import os
 
-# マルチ・モニターやディスプレイ スケーリング (125%, 150% 等) 環境における、
-# Windows特有の座標ズレや枠外への表示バグを完全に修正するため、HighDPIスケーリングを無効化する。
+# Windows特有のDPIスケーリングによる座標ズレ（マウスと描画枠の位置がずれるバグ）を完全に防ぐため、
+# OSレベルでプロセスのDPIスケーリングを無効化（Per-Monitor V2）する
+if sys.platform == "win32":
+    import ctypes
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        pass
+
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "0"
 os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "0"
 os.environ["QT_SCALE_FACTOR"] = "1"
